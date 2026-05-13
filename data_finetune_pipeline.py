@@ -155,7 +155,6 @@ def _azure_chat(messages, endpoint, api_key, deployment, api_version):
     url = f"{endpoint}/openai/deployments/{deployment}/chat/completions?api-version={api_version}"
     payload = {
         "messages": messages,
-        "temperature": 0.7,
     }
 
     req = request.Request(
