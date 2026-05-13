@@ -15,60 +15,83 @@ import numpy as np
 import torch
 from model import GPT, GPTConfig
 
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # ══════════════════════════════════════════
 #  CONFIG — tweak these
 # ══════════════════════════════════════════
-out_dir       = 'out-chat'
-data_dir      = 'data/chat'
+out_dir = 'out-chat'
+data_dir = 'data/chat'
 
 # Training
-max_iters     = 1000
+max_iters = 1000
 eval_interval = 100
-eval_iters    = 50
-log_interval  = 10
+eval_iters = 50
+log_interval = 10
 
 # Model size (~3M params, CPU-friendly)
-n_layer       = 4
-n_head        = 4
-n_embd        = 256
-block_size    = 64
-dropout       = 0.2
+n_layer = 4
+n_head = 4
+n_embd = 256
+block_size = 64
+dropout = 0.2
 
 # Optimizer
-batch_size    = 8        # reduce to 4 if slow
+batch_size = 8        # reduce to 4 if slow
 learning_rate = 1e-3
-min_lr        = 1e-4
-warmup_iters  = 100
+min_lr = 1e-4
+warmup_iters = 100
 lr_decay_iters = 1000
-beta1, beta2  = 0.9, 0.99
+beta1, beta2 = 0.9, 0.99
 
-device        = 'cpu'   # change to 'cuda' if you have a GPU
+device = 'cpu'   # change to 'cuda' if you have a GPU
 # ══════════════════════════════════════════
+
+out_dir = os.path.join(ROOT_DIR, out_dir)
+data_dir = os.path.join(ROOT_DIR, data_dir)
 
 os.makedirs(out_dir, exist_ok=True)
 torch.manual_seed(1337)
 
 # ── Load data ─────────────────────────────
+
+
 def load_data(split):
     path = os.path.join(data_dir, f'{split}.bin')
+    if not os.path.exists(path):
+        raise FileNotFoundError(
+            f"Missing dataset file: {path}\n"
+            "Run `python prepare_data.py` once before `python train.py`."
+        )
     data = np.fromfile(path, dtype=np.uint16)
     return torch.from_numpy(data.astype(np.int64))
 
-train_data = load_data('train')
-val_data   = load_data('val')
 
-with open(os.path.join(data_dir, 'meta.pkl'), 'rb') as f:
+train_data = load_data('train')
+val_data = load_data('val')
+
+meta_path = os.path.join(data_dir, 'meta.pkl')
+if not os.path.exists(meta_path):
+    raise FileNotFoundError(
+        f"Missing dataset metadata: {meta_path}\n"
+        "Run `python prepare_data.py` once before `python train.py`."
+    )
+
+with open(meta_path, 'rb') as f:
     meta = pickle.load(f)
 vocab_size = meta['vocab_size']
 print(f"Vocab size: {vocab_size} | Train tokens: {len(train_data):,}")
 
 # ── Batch sampler ─────────────────────────
+
+
 def get_batch(split):
     data = train_data if split == 'train' else val_data
     ix = torch.randint(len(data) - block_size, (batch_size,))
-    x  = torch.stack([data[i:i+block_size]   for i in ix])
-    y  = torch.stack([data[i+1:i+block_size+1] for i in ix])
+    x = torch.stack([data[i:i+block_size] for i in ix])
+    y = torch.stack([data[i+1:i+block_size+1] for i in ix])
     return x.to(device), y.to(device)
+
 
 # ── Model ─────────────────────────────────
 config = GPTConfig(
@@ -82,7 +105,9 @@ config = GPTConfig(
 model = GPT(config).to(device)
 
 # ── Optimizer ─────────────────────────────
-optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, betas=(beta1, beta2))
+optimizer = torch.optim.AdamW(
+    model.parameters(), lr=learning_rate, betas=(beta1, beta2))
+
 
 def get_lr(it):
     if it < warmup_iters:
@@ -91,6 +116,7 @@ def get_lr(it):
         return min_lr
     decay = (it - warmup_iters) / (lr_decay_iters - warmup_iters)
     return min_lr + 0.5 * (learning_rate - min_lr) * (1 + math.cos(math.pi * decay))
+
 
 @torch.no_grad()
 def estimate_loss():
@@ -106,6 +132,7 @@ def estimate_loss():
     model.train()
     return losses
 
+
 # ── Training loop ─────────────────────────
 print("\n🚀 Training started!\n")
 best_val_loss = float('inf')
@@ -119,7 +146,8 @@ for iter in range(max_iters + 1):
     # Eval
     if iter % eval_interval == 0:
         losses = estimate_loss()
-        print(f"step {iter:4d}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+        print(
+            f"step {iter:4d}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
         if losses['val'] < best_val_loss:
             best_val_loss = losses['val']
             ckpt = {

@@ -3,10 +3,11 @@ finetune.py — Fine-tune TinyLlama 1.1B on your custom data
 Run: python finetune.py
 """
 
-from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments
-from trl import SFTTrainer
-from peft import LoraConfig
 from datasets import load_dataset
+from peft import LoraConfig
+from trl import SFTTrainer
+from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments
+from importlib.metadata import version as pkg_version
 
 # ══════════════════════════════════════════
 # CONFIG
@@ -17,6 +18,51 @@ OUTPUT_DIR = "out-finetune"
 MAX_SEQ_LEN = 256
 EPOCHS = 3
 # ══════════════════════════════════════════
+
+
+def _version_tuple(v: str):
+    # Keep only numeric parts so we can compare versions without extra deps.
+    nums = []
+    for part in v.split("."):
+        digits = "".join(ch for ch in part if ch.isdigit())
+        if digits == "":
+            break
+        nums.append(int(digits))
+    while len(nums) < 3:
+        nums.append(0)
+    return tuple(nums[:3])
+
+
+def _check_dependency_compatibility():
+    peft_v = pkg_version("peft")
+    trl_v = pkg_version("trl")
+    transformers_v = pkg_version("transformers")
+    print(
+        f"Versions -> peft: {peft_v}, trl: {trl_v}, transformers: {transformers_v}")
+
+    # trl 0.8.x can fail with very new transformers where Trainer API changed.
+    if _version_tuple(trl_v) < (0, 9, 0) and _version_tuple(transformers_v) >= (4, 52, 0):
+        raise RuntimeError(
+            "Incompatible packages detected: trl "
+            f"{trl_v} with transformers {transformers_v}.\n"
+            "Fix by pinning compatible versions:\n"
+            "  python -m pip install --upgrade 'transformers==4.41.2' "
+            "'trl==0.8.6' 'peft==0.10.0' 'accelerate<1.0'"
+        )
+
+    # Newer peft releases expect symbols not available in older transformers.
+    if _version_tuple(peft_v) >= (0, 12, 0) and _version_tuple(transformers_v) < (4, 44, 0):
+        raise RuntimeError(
+            "Incompatible packages detected: peft "
+            f"{peft_v} with transformers {transformers_v}.\n"
+            "Fix by pinning compatible versions:\n"
+            "  python -m pip install --upgrade 'transformers==4.41.2' "
+            "'trl==0.8.6' 'peft==0.10.0' 'accelerate<1.0'"
+        )
+
+
+_check_dependency_compatibility()
+
 
 print("Loading model...")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
