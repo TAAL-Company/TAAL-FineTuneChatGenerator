@@ -19,8 +19,10 @@ TAAL is a project for fine-tuning [TinyLlama 1.1B](https://huggingface.co/TinyLl
   - [From-Scratch GPT Training](#from-scratch-gpt-training)
     - [1. Prepare data](#1-prepare-data)
     - [2. Train](#2-train)
+  - [Generate Data And Fine-Tune (One Command)](#generate-data-and-fine-tune-one-command)
   - [Configuration Reference](#configuration-reference)
     - [`finetune.py`](#finetunepy)
+    - [`data_finetune_pipeline.py`](#data_finetune_pipelinepy)
     - [`chat_taal.py`](#chat_taalpy)
     - [`train.py` (from-scratch GPT)](#trainpy-from-scratch-gpt)
     - [`prepare_data.py`](#prepare_datapy)
@@ -124,6 +126,41 @@ from data instead of being explicitly programmed...
 
 ---
 
+## Generate Data And Fine-Tune (One Command)
+
+Use `data_finetune_pipeline.py` to generate new QA examples and optionally start fine-tuning immediately.
+
+### Template mode (offline)
+
+```bash
+python data_finetune_pipeline.py --mode template --count 120 --run-finetune
+```
+
+### Azure mode (AI-generated data)
+
+Set server-side environment variables first (do not hardcode keys in frontend code):
+
+```bash
+export AZURE_OPENAI_ENDPOINT="https://<your-resource>.openai.azure.com"
+export AZURE_OPENAI_API_KEY="<your-key>"
+export AZURE_OPENAI_DEPLOYMENT="<your-chat-deployment>"
+export AZURE_OPENAI_API_VERSION="2025-01-01-preview"
+```
+
+Then run:
+
+```bash
+python data_finetune_pipeline.py --mode azure --count 150 --topics "AI,Python,Azure" --run-finetune
+```
+
+This script:
+- Generates unique JSONL examples
+- Avoids duplicates based on question text
+- Combines `my_data.jsonl` + generated file
+- Continues fine-tuning from `out-finetune/` when available
+
+---
+
 ## From-Scratch GPT Training
 
 This track trains a small GPT model entirely from scratch on the [TinyStories](https://huggingface.co/datasets/roneneldan/TinyStories) dataset using a character-level tokenizer.
@@ -158,10 +195,30 @@ python train.py
 | Variable | Default | Description |
 |---|---|---|
 | `MODEL_NAME` | `TinyLlama/TinyLlama-1.1B-Chat-v1.0` | HuggingFace base model |
-| `DATA_FILE` | `my_data.jsonl` | Path to training data |
+| `DATA_FILES` | `['my_data.jsonl']` | Training data file list |
 | `OUTPUT_DIR` | `out-finetune` | Where to save the adapter |
+| `CONTINUE_FROM_ADAPTER` | `out-finetune` | Existing adapter path for continued fine-tuning |
 | `MAX_SEQ_LEN` | `256` | Maximum token sequence length |
 | `EPOCHS` | `3` | Number of training passes |
+
+You can override these at runtime with env vars:
+- `TAAL_DATA_FILES` (comma-separated)
+- `TAAL_OUTPUT_DIR`
+- `TAAL_CONTINUE_FROM_ADAPTER`
+- `TAAL_MAX_SEQ_LEN`
+- `TAAL_EPOCHS`
+
+### `data_finetune_pipeline.py`
+
+| Option | Example | Description |
+|---|---|---|
+| `--mode` | `template` or `azure` | Data generation source |
+| `--count` | `120` | Number of examples to generate |
+| `--topics` | `"AI,Python,Azure"` | Topic list for generation |
+| `--run-finetune` | flag | Launches `finetune.py` after generation |
+| `--epochs` | `3` | Epochs passed to finetune |
+| `--output-dir` | `out-finetune` | Adapter output directory |
+| `--continue-from` | `out-finetune` | Adapter checkpoint to continue from |
 
 **LoRA config:** `r=8`, `lora_alpha=16`, `lora_dropout=0.05`
 
