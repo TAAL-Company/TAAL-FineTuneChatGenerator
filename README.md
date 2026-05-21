@@ -15,11 +15,15 @@ TAAL is a project for fine-tuning [TinyLlama 1.1B](https://huggingface.co/TinyLl
     - [1. Install dependencies](#1-install-dependencies)
     - [2. Prepare your training data](#2-prepare-your-training-data)
     - [3. Fine-tune](#3-fine-tune)
+    - [View training during run (live)](#view-training-during-run-live)
+    - [View training after run (report)](#view-training-after-run-report)
     - [4. Chat](#4-chat)
+  - [Generate Data And Fine-Tune (One Command)](#generate-data-and-fine-tune-one-command)
+    - [Template mode (offline)](#template-mode-offline)
+    - [Azure mode (AI-generated data)](#azure-mode-ai-generated-data)
   - [From-Scratch GPT Training](#from-scratch-gpt-training)
     - [1. Prepare data](#1-prepare-data)
     - [2. Train](#2-train)
-  - [Generate Data And Fine-Tune (One Command)](#generate-data-and-fine-tune-one-command)
   - [Configuration Reference](#configuration-reference)
     - [`finetune.py`](#finetunepy)
     - [`data_finetune_pipeline.py`](#data_finetune_pipelinepy)
@@ -101,8 +105,30 @@ python finetune.py
 - Downloads TinyLlama (~2.2 GB on first run)
 - Trains for 3 epochs with LoRA (r=8, alpha=16)
 - Saves checkpoints to `out-finetune/` every 50 steps
+- Writes TensorBoard logs to `out-finetune/runs/` for live monitoring
+- Generates a report in `out-finetune/reports/` after training
 - Typical loss: ~2.4 → ~1.4
 - Estimated time: ~20 minutes on CPU
+
+### View training during run (live)
+
+```bash
+tensorboard --logdir out-finetune/runs
+```
+
+Then open `http://localhost:6006` in your browser.
+
+### View training after run (report)
+
+```bash
+python training_report.py --output-dir out-finetune
+```
+
+This creates:
+
+- `out-finetune/reports/training_metrics.csv`
+- `out-finetune/reports/training_summary.json`
+- `out-finetune/reports/training_report.md`
 
 ### 4. Chat
 
@@ -112,7 +138,7 @@ python chat_taal.py
 
 An interactive prompt will appear. Type your message and press Enter. Press `Ctrl+C` to quit.
 
-```
+```text
 ==================================================
   TAAL 1.1B
   Type your message, Ctrl+C to quit
@@ -135,6 +161,14 @@ Use `data_finetune_pipeline.py` to generate new QA examples and optionally start
 ```bash
 python data_finetune_pipeline.py --mode template --count 120 --run-finetune
 ```
+
+To also merge generated examples into your base dataset (`my_data.jsonl`), add:
+
+```bash
+python data_finetune_pipeline.py --mode template --count 120 --update-base-data --run-finetune
+```
+
+Backups are saved in `dataset_backups/` before updating the base file.
 
 ### Azure mode (AI-generated data)
 
@@ -216,6 +250,8 @@ You can override these at runtime with env vars:
 | `--count` | `120` | Number of examples to generate |
 | `--topics` | `"AI,Python,Azure"` | Topic list for generation |
 | `--run-finetune` | flag | Launches `finetune.py` after generation |
+| `--update-base-data` | flag | Appends generated rows into base dataset with backup |
+| `--backup-dir` | `dataset_backups` | Backup folder before base dataset update |
 | `--epochs` | `3` | Epochs passed to finetune |
 | `--output-dir` | `out-finetune` | Adapter output directory |
 | `--continue-from` | `out-finetune` | Adapter checkpoint to continue from |

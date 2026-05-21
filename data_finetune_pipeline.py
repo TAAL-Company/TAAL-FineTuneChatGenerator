@@ -14,6 +14,7 @@ Azure mode expects these environment variables:
 """
 
 import argparse
+import datetime
 import json
 import os
 import random
@@ -81,6 +82,16 @@ def parse_args():
         "--base-data",
         default=str(DEFAULT_BASE_DATA),
         help="Existing dataset JSONL to combine with generated data.",
+    )
+    parser.add_argument(
+        "--update-base-data",
+        action="store_true",
+        help="Append generated examples into --base-data (with backup).",
+    )
+    parser.add_argument(
+        "--backup-dir",
+        default="dataset_backups",
+        help="Directory for base dataset backups before update.",
     )
     parser.add_argument(
         "--topics",
@@ -239,6 +250,26 @@ def save_jsonl(path, examples):
             f.write(json.dumps(ex.as_record(), ensure_ascii=False) + "\n")
 
 
+def append_to_base_dataset(base_data_path, examples, backup_dir):
+    base_data_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if base_data_path.exists():
+        backup_path = Path(backup_dir).resolve() / (
+            f"{base_data_path.stem}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}{base_data_path.suffix}"
+        )
+        backup_path.parent.mkdir(parents=True, exist_ok=True)
+        backup_path.write_text(base_data_path.read_text(
+            encoding="utf-8"), encoding="utf-8")
+        print(f"Backup created: {backup_path}")
+
+    mode = "a" if base_data_path.exists() else "w"
+    with base_data_path.open(mode, encoding="utf-8") as f:
+        for ex in examples:
+            f.write(json.dumps(ex.as_record(), ensure_ascii=False) + "\n")
+
+    print(f"Updated base dataset: {base_data_path} (+{len(examples)} rows)")
+
+
 def run_finetune(base_data, generated_data, epochs, output_dir, continue_from):
     combined_data = f"{base_data},{generated_data}"
     cmd = [
@@ -293,6 +324,13 @@ def main():
 
     save_jsonl(output_path, generated)
     print(f"Saved {len(generated)} examples -> {output_path}")
+
+    if args.update_base_data:
+        append_to_base_dataset(
+            base_data_path=base_data_path,
+            examples=generated,
+            backup_dir=args.backup_dir,
+        )
 
     if args.run_finetune:
         run_finetune(

@@ -4,7 +4,9 @@ Run: python finetune.py
 """
 
 import argparse
+import json
 import os
+from pathlib import Path
 
 from datasets import load_dataset
 from peft import LoraConfig, PeftModel
@@ -22,6 +24,80 @@ CONTINUE_FROM_ADAPTER = "out-finetune"
 MAX_SEQ_LEN = 256
 EPOCHS = 3
 # ══════════════════════════════════════════
+
+
+def _build_training_report(output_dir: str, log_history):
+    report_dir = Path(output_dir) / "reports"
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    step_metrics = {}
+    for row in log_history:
+        step = row.get("step")
+        if step is None:
+            continue
+        item = step_metrics.setdefault(
+            int(step), {"step": int(step), "loss": None,
+                        "learning_rate": None, "epoch": None}
+        )
+        if "loss" in row:
+            item["loss"] = row["loss"]
+        if "learning_rate" in row:
+            item["learning_rate"] = row["learning_rate"]
+        if "epoch" in row:
+            item["epoch"] = row["epoch"]
+
+    metrics = [step_metrics[k] for k in sorted(step_metrics)]
+
+    csv_path = report_dir / "training_metrics.csv"
+    with csv_path.open("w", encoding="utf-8") as f:
+        f.write("step,loss,learning_rate,epoch\n")
+        for m in metrics:
+            f.write(
+                f"{m['step']},{'' if m['loss'] is None else m['loss']},"
+                f"{'' if m['learning_rate'] is None else m['learning_rate']},"
+                f"{'' if m['epoch'] is None else m['epoch']}\n"
+            )
+
+    best_train_loss = None
+    best_step = None
+    for m in metrics:
+        if m["loss"] is None:
+            continue
+        if best_train_loss is None or m["loss"] < best_train_loss:
+            best_train_loss = m["loss"]
+            best_step = m["step"]
+
+    summary = {
+        "output_dir": output_dir,
+        "total_logged_steps": len(metrics),
+        "best_train_loss": best_train_loss,
+        "best_step": best_step,
+    }
+
+    summary_path = report_dir / "training_summary.json"
+    summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+
+    md_lines = [
+        "# TAAL Fine-tune Training Report",
+        "",
+        f"- Output directory: {output_dir}",
+        f"- Logged steps: {len(metrics)}",
+        f"- Best train loss: {best_train_loss if best_train_loss is not None else 'N/A'}",
+        f"- Best step: {best_step if best_step is not None else 'N/A'}",
+        "",
+        "## Files",
+        "",
+        "- training_metrics.csv",
+        "- training_summary.json",
+        "",
+        "## View During Training",
+        "",
+        f"Run: tensorboard --logdir {output_dir}/runs",
+    ]
+
+    (report_dir / "training_report.md").write_text("\n".join(md_lines), encoding="utf-8")
+
+    return report_dir
 
 
 def _parse_args():
@@ -142,6 +218,8 @@ training_args = TrainingArguments(
     gradient_accumulation_steps=4,
     learning_rate=2e-4,
     logging_steps=10,
+    logging_dir=os.path.join(OUTPUT_DIR, "runs"),
+    report_to=["tensorboard"],
     save_steps=50,
     fp16=False,
     bf16=False,
@@ -169,5 +247,9 @@ trainer.train()
 trainer.save_model(OUTPUT_DIR)
 tokenizer.save_pretrained(OUTPUT_DIR)
 
+report_dir = _build_training_report(OUTPUT_DIR, trainer.state.log_history)
+
 print(f"\nDone! Model saved to {OUTPUT_DIR}")
+print(f"Training report generated in: {report_dir}")
+print(f"To monitor live next run: tensorboard --logdir {OUTPUT_DIR}/runs")
 print("Next step: python chat_taal.py")
